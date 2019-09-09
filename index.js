@@ -1,3 +1,6 @@
+//import {connectionString} from "./.env"
+//import config from '../config/environment'
+require("dotenv").config();
 const express = require("express")
 const cors = require("cors")
 const MongoClient = require("mongodb").MongoClient;
@@ -5,10 +8,7 @@ const ObjectId = require("mongodb").ObjectId;
 
 const app = express()
 const port = process.env.PORT || 5000
-const db_url = "mongodb+srv://Admin:myPassword@mycluster-2mwkd.mongodb.net/Casino?retryWrites=true&w=majority"
-  //"mongodb+srv://instructor:g7VppVh2tnXlfsNS@helio-slc-uocvs.mongodb.net/jobTracker?retryWrites=true&w=majority";
-  
-
+const db_url = process.env.CONNECTION_STRING
 const client = new MongoClient(db_url, { useNewUrlParser: true, useUnifiedTopology: true });
 
 app.use(express.json())
@@ -33,17 +33,18 @@ app.get('/', (req, res) => {
 //post new lead
 app.post('/', (req, res) => {
   let input = req.body;
-  if(input.action = "log in") {
+  if(input.action == "log in") {
     client.connect(err => {
       const collection = client.db("Casino").collection("Players");
       collection.find({ name: input.name }).toArray()
       .then( (thePlayers) =>  {
+        console.log(thePlayers.length);
         let player = thePlayers[0];
-        console.log("here");
         if(thePlayers.length < 1) {
-          console.log('double here');
+          console.log("okokok")
+          throw("user not found");
         }
-        if( (player.password != input.password) || (player == undefined)) {
+        if( (player.password != input.password)) {
           throw("wrong password");
         }
         let returnPlayer = {};
@@ -54,8 +55,12 @@ app.post('/', (req, res) => {
         })
         .catch(error => {
           client.close(); 
+          console.log(error);
           let errorMsg = {};
-          if(error == "wrong password") {
+          if(error == "user not found") {
+            console.log("wtf");
+            errorMsg.msg = error;
+          } else if(error == "wrong password") {
             errorMsg.msg = error;
           } else {
             errorMsg.msg = error.message;
@@ -65,56 +70,95 @@ app.post('/', (req, res) => {
         })
     })
   } else {
-    // client.connect(err => {
-    //   const collection = client.db("Casino").collection("Players");
-    //   collection.find({ name: input.name }).toArray()
-    //   .then( (thePlayers) =>  {
-    //     let player = thePlayers[0];
-    //     let returnPlayer = {};
-    //     returnPlayer.name = player.name;
-    //     returnPlayer.bank = player.bank;
-    //     returnPlayer.id = player._id;
-    //     res.send(returnPlayer);
-    //     })
-    //     .catch(error => {
-    //       client.close(); 
-    //       let errorMsg = {};
-    //       if(error == "wrong password") {
-  }
+    client.connect(err => {
+      const collection = client.db("Casino").collection("Players");
+      collection.find({ name: input.name }).toArray()
+      .then( (thePlayers) =>  {
+        if(thePlayers.length > 0) {
+          console.log("bout to YEET this error")
+          throw(`user name: '${input.name} is already in use`);
+        }
+        let newPlayer = {};
+        newPlayer.name = input.name;
+        newPlayer.password = input.password;
+        newPlayer.bank = input.bank;
+        collection.insertOne(newPlayer, function(err, res2) {
+          client.close();
+          let returnMsg = {};
+          returnMsg.msg = ('added player "' + input.name + '" you may now Log in');
+          console.log(returnMsg.msg);
+          return res.send(returnMsg);
+        })
+      })
+        .catch(error => {
+          client.close(); 
+          console.log(error);
+          let returnMsg = {};
+          returnMsg.msg = (`The user "${input.name}" is already in use`);
+          return res.send(returnMsg);
+        })
 
-  client.close();
-});
+        client.close();
+      });
+    }
+  });
 
 
 //update lead by ID
 app.put('/', (req, res) => {
   const body = req.body;
-  /*
-  client.connect(async err => {
-    const collection = client.db("jobTracker").collection("Leads");
-    // perform actions on the collection object
-    const results = await collection.updateOne({_id: ObjectId(req.params.ID)},{$set: body});
-    res.send(results);
-
-    client.close();
-    });
-    */
-   return res.send(body)
+  let input = req.body;
+  if(input.id == -1) {
+    return res.send("Can't save as guest");
+  }
+  client.connect(err => {
+    const collection = client.db("Casino").collection("Players");
+    try { collection.updateOne({_id: ObjectId(input.id)}, { $set: {bank: input.bank} }); } catch(e) {throw e.message}
+    return res.send(body)
+  });
 });
 
 //delete lead by ID
 app.delete('/', (req, res) => {
-    /*
-  client.connect(async err => {
-    const collection = client.db("jobTracker").collection("Leads");
-    // perform actions on the collection object
-    const results = await collection.deleteOne({_id: ObjectId(req.params.ID)});
-    res.send(results);
+  console.log("trying to delete");
+  let input = req.body;
+  client.connect(err => {
+    const collection = client.db("Casino").collection("Players");
+    collection.find({ name: input.name }).toArray()
+    .then( (thePlayers) =>  {
+      if(thePlayers.length < 1) {
+        console.log("bad user")
+        throw("User Not Found");
+      }
+      if(thePlayers[0].password != input.password) {
+        console.log("bad pass");
+        throw("Incorrect Password");
+      }
+      try { collection.deleteOne({"_id": thePlayers[0]._id}); } catch(e) {throw e.message}
+        client.close();
+        let returnMsg = {};
+        returnMsg.msg = ('Deleted Player "' + input.name + '"');
+        console.log(returnMsg.msg);
+        return res.send(returnMsg);
+    })
+      .catch(error => {
+        client.close(); 
+        let errorMsg = {};
+        if(error == "Incorrect Password") {
+          console.log("wtf");
+          errorMsg.msg = error;
+        } else if(error == "User Not Found") {
+          errorMsg.msg = error;
+        } else {
+          errorMsg.msg = error.message;
+        }
+        console.log(errorMsg);
+        return res.send(errorMsg);
+      })
 
-    client.close();
+      client.close();
+    // });
   });
-  */
-  res.send("deleted the thingThang")
 });
 
 
